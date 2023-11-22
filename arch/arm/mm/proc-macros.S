@@ -339,6 +339,7 @@ ENTRY(\name\()_cache_fns)
 .endm
 
 .macro define_tlb_functions name:req, flags_up:req, flags_smp
+	.align 4
 	.type	\name\()_tlb_fns, #object
 ENTRY(\name\()_tlb_fns)
 	.long	\name\()_flush_user_tlb_range

@@ -30,7 +30,9 @@
 #include <linux/random.h>
 #include <linux/pm_qos.h>
 #include <linux/kobject.h>
-
+#ifdef CONFIG_ARCH_SSTAR
+#include <linux/regmap.h>
+#endif
 #include <linux/uaccess.h>
 #include <asm/byteorder.h>
 
@@ -115,6 +117,7 @@ EXPORT_SYMBOL_GPL(ehci_cf_port_reset_rwsem);
 static void hub_release(struct kref *kref);
 static int usb_reset_and_verify_device(struct usb_device *udev);
 static int hub_port_disable(struct usb_hub *hub, int port1, int set_state);
+
 static bool hub_port_warm_reset_required(struct usb_hub *hub, int port1,
 		u16 portstatus);
 
@@ -2785,6 +2788,12 @@ static int hub_port_wait_reset(struct usb_hub *hub, int port1,
 	u16 portstatus;
 	u16 portchange;
 	u32 ext_portstatus = 0;
+//#ifdef CONFIG_ARCH_SSTAR
+#if 0
+	struct usb_device *hdev = hub->hdev;
+	struct usb_hcd *hcd = bus_to_hcd(hdev->bus);
+	u8  bRestore = 1;
+#endif
 
 	for (delay_time = 0;
 			delay_time < HUB_RESET_TIMEOUT;
@@ -2792,6 +2801,16 @@ static int hub_port_wait_reset(struct usb_hub *hub, int port1,
 		/* wait to give the device a chance to reset */
 		msleep(delay);
 
+//#ifdef CONFIG_ARCH_SSTAR //_USB_HS_CHIRP_PATCH
+#if 0
+		if ((hcd->utmi_base) && (hcd->ehc_base) &&
+		    (!hub->hdev->parent) && bRestore) {
+			/* Chirp K detection level: 0x80 => 400mv, 0x20 => 575mv 0x00: 550mv, 0x20: 575, 0x40: 600, 0x60: 625*/
+			regmap_update_bits((struct regmap *)hcd->utmi_base, (0x15 << 2), 0xFF, 0x62);
+			msleep(20);
+			bRestore = 0;
+		}
+#endif
 		/* read and decode port status */
 		if (hub_is_superspeedplus(hub->hdev))
 			ret = hub_ext_port_status(hub, port1,
@@ -2884,6 +2903,12 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 	u16 portchange, portstatus;
 	struct usb_port *port_dev = hub->ports[port1 - 1];
 	int reset_recovery_time;
+//#ifdef CONFIG_ARCH_SSTAR
+#if 0
+	struct usb_device *hdev = hub->hdev;
+	bool   bU2RH = false;
+	struct usb_hcd *hcd;
+#endif
 
 	if (!hub_is_superspeed(hub->hdev)) {
 		if (warm) {
@@ -2906,9 +2931,24 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 				warm = true;
 	}
 	clear_bit(port1, hub->warm_reset_bits);
-
+//#ifdef CONFIG_ARCH_SSTAR
+#if 0
+	hcd = bus_to_hcd(hdev->bus);
+	/* _USB_HS_CHIRP_PATCH */
+	if ((hcd->utmi_base) && (!hdev->parent)) {
+		bU2RH = true;
+	}
+#endif
 	/* Reset the port */
 	for (i = 0; i < PORT_RESET_TRIES; i++) {
+//#ifdef CONFIG_ARCH_SSTAR  //_USB_HS_CHIRP_PATCH
+#if 0
+		if (bU2RH) {
+			regmap_write((struct regmap *)hcd->utmi_base, (0x16 << 2), 0x0010);
+            regmap_write((struct regmap *)hcd->utmi_base, (0x17 << 2), 0x0000);
+			regmap_update_bits((struct regmap *)hcd->utmi_base, (0x15 << 2), 0xFF, 0x80);
+		}
+#endif
 		status = set_port_feature(hub->hdev, port1, (warm ?
 					USB_PORT_FEAT_BH_PORT_RESET :
 					USB_PORT_FEAT_RESET));
@@ -2926,6 +2966,15 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 						"port_wait_reset: err = %d\n",
 						status);
 		}
+//#ifdef CONFIG_ARCH_SSTAR
+#if 0
+		if (bU2RH) {//_USB_HS_CHIRP_PATCH
+			regmap_write((struct regmap *)hcd->utmi_base, (0x16 << 2), 0x0210);
+            regmap_write((struct regmap *)hcd->utmi_base, (0x17 << 2), 0x8100);
+			/* 0x00: 550mv, 0x20: 575, 0x40: 600, 0x60: 625 */
+			regmap_update_bits((struct regmap *)hcd->utmi_base, (0x15 << 2), 0xFF, 0x62);
+		}
+#endif
 
 		/* Check for disconnect or reset */
 		if (status == 0 || status == -ENOTCONN || status == -ENODEV) {
@@ -2966,7 +3015,6 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 				warm = true;
 			}
 		}
-
 		dev_dbg(&port_dev->dev,
 				"not enabled, trying %sreset again...\n",
 				warm ? "warm " : "");
@@ -3696,6 +3744,7 @@ static int hub_handle_remote_wakeup(struct usb_hub *hub, unsigned int port,
 			connect_change = 1;
 	} else {
 		ret = -ENODEV;
+
 		hub_port_disable(hub, port, 1);
 	}
 	dev_dbg(&port_dev->dev, "resume, status %d\n", ret);
@@ -4445,7 +4494,6 @@ static int hub_port_disable(struct usb_hub *hub, int port1, int set_state)
 int usb_port_disable(struct usb_device *udev)
 {
 	struct usb_hub *hub = usb_hub_to_struct_hub(udev->parent);
-
 	return hub_port_disable(hub, udev->portnum, 0);
 }
 
@@ -4611,8 +4659,8 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 	enum usb_device_speed	oldspeed = udev->speed;
 	const char		*speed;
 	int			devnum = udev->devnum;
-	const char		*driver_name;
-	bool			do_new_scheme;
+	const char              *driver_name;
+	bool                    do_new_scheme;
 
 	/* root hub ports have a slightly longer reset period
 	 * (from USB 2.0 spec, section 7.1.7.5)
@@ -4635,6 +4683,7 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 	retval = hub_port_reset(hub, port1, udev, delay, false);
 	if (retval < 0)		/* error or disconnect */
 		goto fail;
+
 	/* success, speed is known */
 
 	retval = -ENODEV;
@@ -4702,7 +4751,8 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 	if (hdev->tt) {
 		udev->tt = hdev->tt;
 		udev->ttport = hdev->ttport;
-	} else if (udev->speed != USB_SPEED_HIGH
+	}
+	else if (udev->speed != USB_SPEED_HIGH
 			&& hdev->speed == USB_SPEED_HIGH) {
 		if (!hub->tt.hub) {
 			dev_err(&udev->dev, "parent hub has no TT\n");
@@ -4786,7 +4836,6 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 			udev->descriptor.bMaxPacketSize0 =
 					buf->bMaxPacketSize0;
 			kfree(buf);
-
 			retval = hub_port_reset(hub, port1, udev, delay, false);
 			if (retval < 0)		/* error or disconnect */
 				goto fail;
@@ -5203,6 +5252,7 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 		usb_lock_port(port_dev);
 		status = hub_port_init(hub, udev, port1, i);
 		usb_unlock_port(port_dev);
+
 		if (status < 0)
 			goto loop;
 
@@ -5311,6 +5361,7 @@ loop:
 			msleep(hub_power_on_good_delay(hub));
 		}
 	}
+
 	if (hub->hdev->parent ||
 			!hcd->driver->port_handed_over ||
 			!(hcd->driver->port_handed_over)(hcd, port1)) {
@@ -5321,6 +5372,7 @@ loop:
 
 done:
 	hub_port_disable(hub, port1, 1);
+
 	if (hcd->driver->relinquish_port && !hub->hdev->parent) {
 		if (status != -ENOTCONN && status != -ENODEV)
 			hcd->driver->relinquish_port(hcd, port1);

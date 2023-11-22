@@ -30,7 +30,9 @@ void __init driver_init(void)
 	/* These are also core pieces, but must come after the
 	 * core core pieces.
 	 */
+#ifndef CONFIG_DEFERRED_CREATE_DTS_SYSNODE
 	of_core_init();
+#endif
 	platform_bus_init();
 	cpu_dev_init();
 	memory_dev_init();

@@ -24,6 +24,11 @@
 #include "proc-v7-2level.S"
 #endif
 
+#define Mode_MON		0x16
+#define Mode_SVC		0x13
+#define FBIT			0x40
+#define IBIT			0x80
+
 ENTRY(cpu_v7_proc_init)
 	ret	lr
 ENDPROC(cpu_v7_proc_init)
@@ -280,6 +285,11 @@ __v7_cr8mp_setup:
 	mov	r10, #(1 << 0)			@ Cache/TLB ops broadcasting
 	b	1f
 __v7_ca7mp_setup:
+#ifdef CONFIG_ARCH_SSTAR
+	mrc	p15, 0, r12, c1, c0, 1
+	orr	r12, r12, #(1 << 6)    @ Enable SMP
+	mcr	p15, 0, r12, c1, c0, 1
+#endif
 __v7_ca12mp_setup:
 __v7_ca15mp_setup:
 __v7_b15mp_setup:
@@ -469,6 +479,53 @@ __v7_pj4b_setup:
 	mcr	p15, 1,	r0, c15, c1, 0
 
 #endif /* CONFIG_CPU_PJ4B */
+
+__v7_ca53_setup:
+	mov r0, #Mode_MON|FBIT|IBIT
+	msr cpsr_c, r0
+
+	//set MSRE
+	mrc p15, 6, r0, c12, c12, 5
+	mov r0, #0xf
+	mcr p15, 6, r0, c12, c12, 5
+	isb
+
+	mrc p15, 0, r0, c1, c1, 0       /* Get Secure Config */
+	orr r0, r0, #1
+	mcr p15, 0, r0, c1, c1, 0       /* Set Non Secure bit */
+	isb
+
+	mov  r0, #0
+	mcrr p15, 4, r0, r0, c14  /* CNTVOFF = 0 */
+	isb
+
+	//set HSRE
+	mrc p15, 4, r0, c12, c9, 5
+	mov r0, #0x9
+	mcr p15, 4, r0, c12, c9, 5
+
+	mov r0, #Mode_SVC|FBIT|IBIT
+	msr cpsr_c, r0
+	b __v7_setup
+
+#ifdef CONFIG_ARCH_SSTAR
+__v7_ca35_setup:
+
+	mov r0, #Mode_MON|FBIT|IBIT
+	msr cpsr_c, r0
+
+	mrc p15, 0, r0, c1, c1, 0       /* Get Secure Config */
+	orr r0, r0, #1
+	mcr p15, 0, r0, c1, c1, 0       /* Set Non Secure bit */
+	isb
+
+	mov  r0, #0
+	mcrr p15, 4, r0, r0, c14  /* CNTVOFF = 0 */
+	isb
+
+	mov r0, #Mode_SVC|FBIT|IBIT
+	msr cpsr_c, r0
+#endif
 
 __v7_setup:
 	adr	r0, __v7_setup_stack_ptr
@@ -814,6 +871,24 @@ __krait_proc_info:
 	 */
 	__v7_proc __krait_proc_info, __v7_setup, hwcaps = HWCAP_IDIV | HWCAP_VFPv4
 	.size	__krait_proc_info, . - __krait_proc_info
+
+	/*
+	 * ARM Ltd. Cortex A53 processor.
+	 */
+	.type	__v7_ca53_proc_info, #object
+__v7_ca53_proc_info:
+	.long	0x410fd034		@ Required ID value
+	.long	0xffffffff		@ Mask for ID
+	__v7_proc __v7_ca53_proc_info, __v7_ca53_setup
+	.size	__v7_ca53_proc_info, . - __v7_ca53_proc_info
+
+#ifdef CONFIG_ARCH_SSTAR
+__v7_ca35_proc_info:
+	.long	0x411fd040		@ Required ID value
+	.long	0xffffffff		@ Mask for ID
+	__v7_proc __v7_ca35_proc_info, __v7_ca35_setup
+	.size	__v7_ca35_proc_info, . - __v7_ca35_proc_info
+#endif
 
 	/*
 	 * Match any ARMv7 processor core.
