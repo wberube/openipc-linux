@@ -28,7 +28,8 @@
                 <PAD_PWM1                PINMUX_FOR_I2C0_MODE_2          MDRV_PUSE_I2C0_SDA>,
                 <PAD_I2C1_SCL            PINMUX_FOR_I2C1_MODE_1          MDRV_PUSE_I2C1_SCL>,
                 <PAD_I2C1_SDA            PINMUX_FOR_I2C1_MODE_1          MDRV_PUSE_I2C1_SDA>
-                #if 0
+
+                #if 1
                 /* be careful, while using spinand with soc ecc, fcie engine will conflict between SD0 & spinand.
                  * in that case, please disable the following padmux for SD0
                  */
