@@ -605,7 +605,7 @@ static s32 HAL_I2C_SendByte(ST_HAL_I2C_BASE *para_i2c_base, const u8 para_val)
             return 0;
         }
     }
-    dmsg_i2c_halerr("i2c-%d no ack!\n", para_i2c_base->u32Group);
+    dmsg_i2c_halwarn("i2c-%d no ack!\n", para_i2c_base->u32Group);
     return -E_ERR_RETRY;
 }
 /****************************************************/
@@ -797,14 +797,14 @@ static s32 HAL_I2C_NormalWrite(ST_HAL_I2C_BASE *para_i2c_base, u16 para_slvadr, 
     if (u16Retry >= NUMBER_TRANSFER_RETRY)
     {
         s32Ret = -E_ERR_RETRY;
-        dmsg_i2c_halerr("i2c-%d write start err!\n", para_i2c_base->u32Group);
+        dmsg_i2c_halwarn("i2c-%d write start err!\n", para_i2c_base->u32Group);
         goto err_rtn;
     }
     // 2.send slave addr << 1 | w_bit
     s32Ret |= HAL_I2C_SendByte(para_i2c_base, para_slvadr);
     if (s32Ret < 0)
     {
-        dmsg_i2c_halerr("i2c-%d send slave addr|write = 0x%04x nack err %d\n", para_i2c_base->u32Group, para_slvadr,
+        dmsg_i2c_halwarn("i2c-%d send slave addr|write = 0x%04x nack err %d\n", para_i2c_base->u32Group, para_slvadr,
                         s32Ret);
         goto err_rtn;
     }
@@ -920,7 +920,7 @@ static s32 HAL_I2C_NormalRead(ST_HAL_I2C_BASE *para_i2c_base, u16 para_slvadr, u
     if (u16Retry >= NUMBER_TRANSFER_RETRY)
     {
         s32Ret = -E_ERR_RETRY;
-        dmsg_i2c_halerr("i2c-%d start err %d\n", para_i2c_base->u32Group, s32Ret);
+        dmsg_i2c_halwarn("i2c-%d start err %d\n", para_i2c_base->u32Group, s32Ret);
         goto err_rtn;
     }
 
@@ -928,7 +928,7 @@ static s32 HAL_I2C_NormalRead(ST_HAL_I2C_BASE *para_i2c_base, u16 para_slvadr, u
     s32Ret |= HAL_I2C_SendByte(para_i2c_base, para_slvadr);
     if (s32Ret)
     {
-        dmsg_i2c_halerr("i2c-%d send slave addr|read = 0x%04x nack from slave err %d\n", para_i2c_base, para_slvadr,
+        dmsg_i2c_halwarn("i2c-%d send slave addr|read = 0x%04x nack from slave err %d\n", para_i2c_base, para_slvadr,
                         s32Ret);
         goto err_rtn;
     }

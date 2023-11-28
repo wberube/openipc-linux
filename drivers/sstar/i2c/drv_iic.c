@@ -286,7 +286,7 @@ s32 sstar_i2c_master_xfer(struct i2c_adapter *para_adapter, struct i2c_msg *para
 
     if (s32Ret)
     {
-        dmsg_i2c_drverr("i2c-%d xfer error\n", para_adapter->nr);
+        dmsg_i2c_drvwarn("i2c-%d xfer error\n", para_adapter->nr);
         para_num = 0;
     }
     else
