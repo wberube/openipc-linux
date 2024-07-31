@@ -166,31 +166,31 @@ endif
 	@python3 $(srctree)/scripts/ms_bin_option_update_int.py  $(obj)/Image '#IMG_SZ#' $$(stat -c %s $(obj)/Image)
 
 	#build uImage
-ifeq ($(CONFIG_KERNEL_GZIP)
+ifeq ($(CONFIG_KERNEL_GZIP))
 	@gzip -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C gzip -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.gz $(obj)/uImage
 endif
-ifeq ($(CONFIG_KERNEL_BZIP2)
+ifeq ($(CONFIG_KERNEL_BZIP2))
 	@bzip2 -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C bzip2 -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.bz2 $(obj)/uImage
 endif
-ifeq ($(CONFIG_KERNEL_LZMA)
+ifeq ($(CONFIG_KERNEL_LZMA))
 	@xz --format=lzma -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C lzma -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.xz $(obj)/uImage
 endif
-ifeq ($(CONFIG_KERNEL_XZ)
+ifeq ($(CONFIG_KERNEL_XZ))
 	@xz -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C lzma -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.xz $(obj)/uImage
 endif
-ifeq ($(CONFIG_KERNEL_LZO)
+ifeq ($(CONFIG_KERNEL_LZO))
 	@lzop -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C lzo -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.lzo $(obj)/uImage
 endif
-ifeq ($(CONFIG_KERNEL_LZ4)
+ifeq ($(CONFIG_KERNEL_LZ4))
 	@lz4 -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C lz4 -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.lz4 $(obj)/uImage
 endif
-ifeq ($(CONFIG_KERNEL_ZSTD)
+ifeq ($(CONFIG_KERNEL_ZSTD))
 	@zstd -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C zstd -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.zst $(obj)/uImage
 endif
