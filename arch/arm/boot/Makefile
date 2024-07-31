@@ -111,7 +111,7 @@ if [ $(words $(UIMAGE_LOADADDR)) -ne 1 ]; then \
 	false; \
 fi
 
-clean-files += uImage.bz2 uImage.gz uImage.lz4 uImage.xz uImage.mz Image.bz2 Image.gz Image.lz4 Image.xz Image.mz Image-fpga
+clean-files += uImage.bz2 uImage.gz uImage.lz4 uImage.lzo uImage.xz uImage.mz Image.bz2 Image.gz Image.lz4 Image.lzo Image.xz Image.mz Image-fpga
 ifeq ($(CONFIG_ARCH_SSTAR),)
 $(obj)/uImage:	$(obj)/zImage FORCE
 	@$(check_for_multiple_loadaddr)
@@ -174,13 +174,25 @@ ifeq ($(CONFIG_KERNEL_BZIP2)
 	@bzip2 -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C bzip2 -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.bz2 $(obj)/uImage
 endif
+ifeq ($(CONFIG_KERNEL_LZMA)
+	@xz --format=lzma -z -k -f $(obj)/Image
+	@${MKIMAGE_BIN} -A arm -O linux -C lzma -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.xz $(obj)/uImage
+endif
 ifeq ($(CONFIG_KERNEL_XZ)
 	@xz -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C lzma -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.xz $(obj)/uImage
 endif
+ifeq ($(CONFIG_KERNEL_LZO)
+	@lzop -k -f $(obj)/Image
+	@${MKIMAGE_BIN} -A arm -O linux -C lzo -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.lzo $(obj)/uImage
+endif
 ifeq ($(CONFIG_KERNEL_LZ4)
 	@lz4 -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C lz4 -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.lz4 $(obj)/uImage
+endif
+ifeq ($(CONFIG_KERNEL_ZSTD)
+	@zstd -z -k -f $(obj)/Image
+	@${MKIMAGE_BIN} -A arm -O linux -C zstd -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.zst $(obj)/uImage
 endif
 
 $(obj)/bootp/bootp: $(obj)/zImage initrd FORCE
