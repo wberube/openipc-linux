@@ -194,6 +194,7 @@ ifeq ($(CONFIG_KERNEL_ZSTD),)
 	@zstd -z -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C zstd -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.zst $(obj)/uImage
 endif
+endif
 
 $(obj)/bootp/bootp: $(obj)/zImage initrd FORCE
 	$(Q)$(MAKE) $(build)=$(obj)/bootp $@
