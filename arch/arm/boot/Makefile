@@ -167,7 +167,7 @@ endif
 
 	#build uImage
 ifeq ($(CONFIG_KERNEL_GZIP),y)
-	@gzip -k -f $(obj)/Image
+	@gzip -9 -k -f $(obj)/Image
 	@${MKIMAGE_BIN} -A arm -O linux -C gzip -a ${LOADADDR} -e ${LOADADDR} -n ${UIMAGE_NAME} -d $(obj)/Image.gz $(obj)/uImage
 endif
 ifeq ($(CONFIG_KERNEL_BZIP2),y)
