@@ -57,6 +57,19 @@
 #define	STMMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 
+#define	RTL8211F_PHY_UID	0x001cc800
+#define	RTL8211F_PHY_UID_MASK	0x001ffc00
+#define	RTL8211F_PAGE_SELECT	0x1f
+#define	RTL8211F_LCR_ADDR	0x10
+#define	RTL8211F_EEELCR_ADDR	0x11
+
+#define RK631_PHY_ID	0x4f51e91b
+#define RK631_PHY_ID_MASK	0x4fffffff
+#define RK631_EXTENDED_REGISTER_ADDRESS_OFFSET	0x1e
+#define RK631_EXTENDED_REGISTER_DATA	0x1f
+#define RK631_LED1_CFG	0xa00d
+#define RK631_LED2_CFG	0xa00e
+
 /* Module parameters */
 #define TX_TIMEO	5000
 static int watchdog = TX_TIMEO;
@@ -236,7 +249,7 @@ static void stmmac_clk_csr_set(struct stmmac_priv *priv)
 {
 	u32 clk_rate;
 
-	clk_rate = clk_get_rate(priv->plat->stmmac_clk);
+	clk_rate = clk_get_rate(priv->plat->pclk);
 
 	/* Platform provided default clk_csr would be assumed valid
 	 * for all other cases except for the below mentioned ones.
@@ -826,8 +839,8 @@ static void stmmac_mac_flow_ctrl(struct stmmac_priv *priv, u32 duplex)
 {
 	u32 tx_cnt = priv->plat->tx_queues_to_use;
 
-	stmmac_flow_ctrl(priv, priv->hw, duplex, priv->flow_ctrl,
-			priv->pause, tx_cnt);
+	stmmac_flow_ctrl(priv, priv->hw, duplex, priv->flow_ctrl & priv->plat->flow_ctrl,
+			 priv->pause, tx_cnt);
 }
 
 static void stmmac_validate(struct phylink_config *config,
@@ -847,6 +860,8 @@ static void stmmac_validate(struct phylink_config *config,
 	phylink_set(mac_supported, 1000baseT_Half);
 	phylink_set(mac_supported, 1000baseT_Full);
 	phylink_set(mac_supported, 1000baseKX_Full);
+	phylink_set(mac_supported, 100baseT1_Full);
+	phylink_set(mac_supported, 1000baseT1_Full);
 
 	phylink_set(mac_supported, Autoneg);
 	phylink_set(mac_supported, Pause);
@@ -1113,6 +1128,9 @@ static int stmmac_init_phy(struct net_device *dev)
 	struct device_node *node;
 	int ret;
 
+	if (priv->plat->integrated_phy_power)
+		ret = priv->plat->integrated_phy_power(priv->plat->bsp_priv, true);
+
 	node = priv->plat->phylink_node;
 
 	if (node)
@@ -1339,13 +1357,17 @@ static int stmmac_init_rx_buffers(struct stmmac_priv *priv, struct dma_desc *p,
 {
 	struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
 	struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
+	gfp_t gfp = (GFP_ATOMIC | __GFP_NOWARN);
 
-	buf->page = page_pool_dev_alloc_pages(rx_q->page_pool);
+	if (priv->dma_cap.addr64 <= 32)
+		gfp |= GFP_DMA32;
+
+	buf->page = page_pool_alloc_pages(rx_q->page_pool, gfp);
 	if (!buf->page)
 		return -ENOMEM;
 
 	if (priv->sph) {
-		buf->sec_page = page_pool_dev_alloc_pages(rx_q->page_pool);
+		buf->sec_page = page_pool_alloc_pages(rx_q->page_pool, gfp);
 		if (!buf->sec_page)
 			return -ENOMEM;
 
@@ -1711,13 +1733,14 @@ static int alloc_dma_rx_desc_resources(struct stmmac_priv *priv)
 		rx_q->queue_index = queue;
 		rx_q->priv_data = priv;
 
-		pp_params.flags = PP_FLAG_DMA_MAP;
+		pp_params.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
 		pp_params.pool_size = priv->dma_rx_size;
 		num_pages = DIV_ROUND_UP(priv->dma_buf_sz, PAGE_SIZE);
 		pp_params.order = ilog2(num_pages);
 		pp_params.nid = dev_to_node(priv->device);
 		pp_params.dev = priv->device;
 		pp_params.dma_dir = DMA_FROM_DEVICE;
+		pp_params.max_len = num_pages * PAGE_SIZE;
 
 		rx_q->page_pool = page_pool_create(&pp_params);
 		if (IS_ERR(rx_q->page_pool)) {
@@ -2337,6 +2360,9 @@ static void stmmac_check_ether_addr(struct stmmac_priv *priv)
 {
 	if (!is_valid_ether_addr(priv->dev->dev_addr)) {
 		stmmac_get_umac_addr(priv, priv->hw, priv->dev->dev_addr, 0);
+		if (likely(priv->plat->get_eth_addr))
+			priv->plat->get_eth_addr(priv->plat->bsp_priv,
+				priv->dev->dev_addr);
 		if (!is_valid_ether_addr(priv->dev->dev_addr))
 			eth_hw_addr_random(priv->dev);
 		dev_info(priv->device, "device MAC address %pM\n",
@@ -2888,9 +2914,12 @@ static int stmmac_open(struct net_device *dev)
 	priv->rx_copybreak = STMMAC_RX_COPYBREAK;
 
 	if (!priv->dma_tx_size)
-		priv->dma_tx_size = DMA_DEFAULT_TX_SIZE;
+		priv->dma_tx_size = priv->plat->dma_tx_size ? priv->plat->dma_tx_size :
+				    DMA_DEFAULT_TX_SIZE;
+
 	if (!priv->dma_rx_size)
-		priv->dma_rx_size = DMA_DEFAULT_RX_SIZE;
+		priv->dma_rx_size = priv->plat->dma_rx_size ? priv->plat->dma_rx_size :
+				    DMA_DEFAULT_RX_SIZE;
 
 	/* Earlier check for TBS */
 	for (chan = 0; chan < priv->plat->tx_queues_to_use; chan++) {
@@ -3012,6 +3041,9 @@ static int stmmac_release(struct net_device *dev)
 	/* Stop and disconnect the PHY */
 	phylink_stop(priv->phylink);
 	phylink_disconnect_phy(priv->phylink);
+
+	if (priv->plat->integrated_phy_power)
+		priv->plat->integrated_phy_power(priv->plat->bsp_priv, false);
 
 	stmmac_disable_all_queues(priv);
 
@@ -3684,6 +3716,10 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 	struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
 	int len, dirty = stmmac_rx_dirty(priv, queue);
 	unsigned int entry = rx_q->dirty_rx;
+	gfp_t gfp = (GFP_ATOMIC | __GFP_NOWARN);
+
+	if (priv->dma_cap.addr64 <= 32)
+		gfp |= GFP_DMA32;
 
 	len = DIV_ROUND_UP(priv->dma_buf_sz, PAGE_SIZE) * PAGE_SIZE;
 
@@ -3698,30 +3734,20 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 			p = rx_q->dma_rx + entry;
 
 		if (!buf->page) {
-			buf->page = page_pool_dev_alloc_pages(rx_q->page_pool);
+			buf->page = page_pool_alloc_pages(rx_q->page_pool, gfp);
 			if (!buf->page)
 				break;
 		}
 
 		if (priv->sph && !buf->sec_page) {
-			buf->sec_page = page_pool_dev_alloc_pages(rx_q->page_pool);
+			buf->sec_page = page_pool_alloc_pages(rx_q->page_pool, gfp);
 			if (!buf->sec_page)
 				break;
 
 			buf->sec_addr = page_pool_get_dma_addr(buf->sec_page);
-
-			dma_sync_single_for_device(priv->device, buf->sec_addr,
-						   len, DMA_FROM_DEVICE);
 		}
 
 		buf->addr = page_pool_get_dma_addr(buf->page);
-
-		/* Sync whole allocation to device. This will invalidate old
-		 * data.
-		 */
-		dma_sync_single_for_device(priv->device, buf->addr, len,
-					   DMA_FROM_DEVICE);
-
 		stmmac_set_desc_addr(priv, p, buf->addr);
 		if (priv->sph)
 			stmmac_set_desc_sec_addr(priv, p, buf->sec_addr, true);
@@ -3851,7 +3877,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 			len = 0;
 		}
 
-		if (count >= limit)
+		if ((count >= limit - 1) && limit > 1)
 			break;
 
 read_again:
@@ -4896,6 +4922,12 @@ static void stmmac_napi_add(struct net_device *dev)
 
 	for (queue = 0; queue < maxq; queue++) {
 		struct stmmac_channel *ch = &priv->channel[queue];
+		int rx_budget = ((priv->plat->dma_rx_size < NAPI_POLL_WEIGHT) &&
+				 (priv->plat->dma_rx_size > 0)) ?
+				 priv->plat->dma_rx_size : NAPI_POLL_WEIGHT;
+		int tx_budget = ((priv->plat->dma_tx_size < NAPI_POLL_WEIGHT) &&
+				 (priv->plat->dma_tx_size > 0)) ?
+				 priv->plat->dma_tx_size : NAPI_POLL_WEIGHT;
 
 		ch->priv_data = priv;
 		ch->index = queue;
@@ -4903,12 +4935,11 @@ static void stmmac_napi_add(struct net_device *dev)
 
 		if (queue < priv->plat->rx_queues_to_use) {
 			netif_napi_add(dev, &ch->rx_napi, stmmac_napi_poll_rx,
-				       NAPI_POLL_WEIGHT);
+				       rx_budget);
 		}
 		if (queue < priv->plat->tx_queues_to_use) {
 			netif_tx_napi_add(dev, &ch->tx_napi,
-					  stmmac_napi_poll_tx,
-					  NAPI_POLL_WEIGHT);
+					  stmmac_napi_poll_tx, tx_budget);
 		}
 	}
 }
@@ -4966,6 +4997,56 @@ int stmmac_reinit_ringparam(struct net_device *dev, u32 rx_size, u32 tx_size)
 		ret = stmmac_open(dev);
 
 	return ret;
+}
+
+static int phy_rtl8211f_led_fixup(struct phy_device *phydev)
+{
+	u32 val, val2;
+	/* Switch to Page 0x0d04 */
+	phy_write(phydev, RTL8211F_PAGE_SELECT, 0x0d04);
+	/* Set LED1(Green) Link 10/100/1000M + Active, and set LED2(Yellow) Link 10/100/1000M */
+	val = phy_read(phydev, RTL8211F_LCR_ADDR);
+	val |= (1<<5);
+	val |= (1<<8);
+	val |= (1<<10);
+	val |= (1<<11);
+	val &= (~(1<<14));
+	phy_write(phydev, RTL8211F_LCR_ADDR, val);
+	/* Disable LED2(Yellow) EEE LED function to keep it on when linked */
+	val2 = phy_read(phydev, RTL8211F_EEELCR_ADDR);
+	val2 &= (~(1<<3));
+	phy_write(phydev, RTL8211F_EEELCR_ADDR, val2);
+	/* Switch back to the PHY's IEEE Standard Registers. Here it is Page 0 */
+	phy_write(phydev, RTL8211F_PAGE_SELECT, 0);
+	return 0;
+}
+
+static int phy_rtl8211f_eee_fixup(struct phy_device *phydev)
+{
+	phy_write(phydev, 31, 0x0000);
+	phy_write(phydev,  0, 0x8000);
+	mdelay(20);
+	phy_write(phydev, 31, 0x0a4b);
+	phy_write(phydev, 17, 0x1110);
+	phy_write(phydev, 31, 0x0000);
+	phy_write(phydev, 13, 0x0007);
+	phy_write(phydev, 14, 0x003c);
+	phy_write(phydev, 13, 0x4007);
+	phy_write(phydev, 14, 0x0000);
+
+	return 0;
+}
+
+static int phy_rk631_led_fixup(struct phy_device *phydev)
+{
+	/* Set LED1(Green) Link 10/100/1000M + Active, and set LED2(Yellow) Link 10/100/1000M */
+	phy_write(phydev, RK631_EXTENDED_REGISTER_ADDRESS_OFFSET, RK631_LED2_CFG);
+	phy_write(phydev, RK631_EXTENDED_REGISTER_DATA, 0xc070);
+
+	phy_write(phydev, RK631_EXTENDED_REGISTER_ADDRESS_OFFSET, RK631_LED1_CFG);
+	phy_write(phydev, RK631_EXTENDED_REGISTER_DATA, 0xc607);
+
+	return 0;
 }
 
 /**
@@ -5068,8 +5149,10 @@ int stmmac_dvr_probe(struct device *device,
 
 	if (priv->dma_cap.sphen && !priv->plat->sph_disable) {
 		ndev->hw_features |= NETIF_F_GRO;
-		priv->sph = true;
-		dev_info(priv->device, "SPH feature enabled\n");
+		if (!priv->plat->sph_disable) {
+			priv->sph = true;
+			dev_info(priv->device, "SPH feature enabled\n");
+		}
 	}
 
 	/* The current IP register MAC_HW_Feature1[ADDR64] only define
@@ -5203,6 +5286,24 @@ int stmmac_dvr_probe(struct device *device,
 	stmmac_init_fs(ndev);
 #endif
 
+	/* Register fixup for PHY RTL8211F */
+	ret = phy_register_fixup_for_uid(RTL8211F_PHY_UID, RTL8211F_PHY_UID_MASK, phy_rtl8211f_led_fixup);
+	if (ret) {
+		dev_warn(priv->device, "Failed to register fixup for PHY RTL8211F.\n");
+	}
+
+	/* Register fixup for PHY RTL8211F disabling EEE */
+	ret = phy_register_fixup_for_uid(RTL8211F_PHY_UID, RTL8211F_PHY_UID_MASK, phy_rtl8211f_eee_fixup);
+	if (ret) {
+		dev_warn(priv->device, "Failed to register fixup for PHY RTL8211F disabling EEE.\n");
+	}
+
+	/* Register fixup for PHY RK631 */
+	ret = phy_register_fixup_for_uid(RK631_PHY_ID, RK631_PHY_ID_MASK, phy_rk631_led_fixup);
+	if (ret) {
+		dev_warn(priv->device, "Failed to register fixup for PHY RK631.\n");
+	}
+
 	/* Let pm_runtime_put() disable the clocks.
 	 * If CONFIG_PM is not enabled, the clocks will stay powered.
 	 */
@@ -5314,12 +5415,18 @@ int stmmac_suspend(struct device *dev)
 		rtnl_lock();
 		if (device_may_wakeup(priv->device))
 			phylink_speed_down(priv->phylink, false);
+		if (priv->plat->integrated_phy_power)
+			priv->plat->integrated_phy_power(priv->plat->bsp_priv,
+							 false);
 		phylink_stop(priv->phylink);
 		rtnl_unlock();
 		mutex_lock(&priv->lock);
 
 		stmmac_mac_set(priv, priv->ioaddr, false);
 		pinctrl_pm_select_sleep_state(priv->device);
+		/* Make the phy into suspend state */
+		if (priv->mii)
+			stmmac_mdio_idle(priv->mii);
 	}
 	mutex_unlock(&priv->lock);
 
@@ -5387,6 +5494,9 @@ int stmmac_resume(struct device *dev)
 		/* reset the phy so that it's ready */
 		if (priv->mii)
 			stmmac_mdio_reset(priv->mii);
+		if (priv->plat->integrated_phy_power)
+			priv->plat->integrated_phy_power(priv->plat->bsp_priv,
+							 true);
 	}
 
 	if (priv->plat->serdes_powerup) {
