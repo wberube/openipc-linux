@@ -12,6 +12,7 @@ obj-$(CONFIG_VIDEO_NVP6188)	+= nvp6188.o
 obj-$(CONFIG_VIDEO_NVP6324)	+= jaguar1_drv/
 
 obj-$(CONFIG_VIDEO_APTINA_PLL) += aptina-pll.o
+obj-$(CONFIG_VIDEO_ARDUCAM_PIVARIETY) += arducam-pivariety.o
 obj-$(CONFIG_VIDEO_TVAUDIO) += tvaudio.o
 obj-$(CONFIG_VIDEO_TDA7432) += tda7432.o
 obj-$(CONFIG_VIDEO_SAA6588) += saa6588.o
